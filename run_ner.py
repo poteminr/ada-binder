@@ -67,10 +67,7 @@ class ModelArguments:
     use_span_width_embedding: bool = field(
         default=False, metadata={"help": "Use span width embeddings."}
     )
-    use_type_embedding: bool = field(
-        default=False, metadata={"help": "Use span width embeddings."}
-    )
-    type_embedding_mask: Optional[List[str]] = field(
+    adaptive_entity_types: Optional[List[str]] = field(
         default_factory=list,
         metadata={"help": "The entity types of this dataset, which are only a part of types in the entity type file."},
     )
@@ -319,9 +316,9 @@ def main():
         hidden_dropout_prob=model_args.hidden_dropout_prob,
         max_span_width=data_args.max_seq_length + 1,
         use_span_width_embedding=model_args.use_span_width_embedding,
-        use_type_embedding=model_args.use_type_embedding,
         num_entities=len(data_args.dataset_entity_types),
-        type_embedding_mask=model_args.type_embedding_mask,
+        dataset_entity_types=data_args.dataset_entity_types,
+        adaptive_entity_types=model_args.adaptive_entity_types,
         linear_size=model_args.linear_size,
         init_temperature=model_args.init_temperature,
         start_loss_weight=model_args.start_loss_weight,

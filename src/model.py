@@ -102,8 +102,8 @@ class Binder(PreTrainedModel):
         )
         self.hf_config = hf_config
         self.num_entities = config.num_entities
-        self.use_type_embedding = config.use_type_embedding
         self.type_embedding_mask = config.type_embedding_mask
+        self.use_type_embedding = self.type_embedding_mask.sum() > 0
         self.config.pruned_heads = hf_config.pruned_heads
         self.dropout = torch.nn.Dropout(hf_config.hidden_dropout_prob)
         self.type_start_linear = torch.nn.Linear(hf_config.hidden_size, config.linear_size)
@@ -197,15 +197,11 @@ class Binder(PreTrainedModel):
         type_output = type_outputs[0][:, 0]
         if self.use_type_embedding:
             type_range_vector = torch.cuda.LongTensor(self.num_entities[0], device=type_output.device).fill_(1).cumsum(0) - 1
-            # print(type_range_vector)
             type_embeddings = self.type_embeddings(type_range_vector)
             
             type_output = type_output[np.where(np.ones_like(self.type_embedding_mask) - self.type_embedding_mask)]
-            # print(type_embeddings.size())
             type_embeddings = type_embeddings[np.where(self.type_embedding_mask)]
-            
-            # print(type_output.size())
-            # print(type_embeddings.size())
+    
             type_output = torch.cat([type_output, type_embeddings], dim=0)
 
         batch_size, seq_length, _ = sequence_output.size()

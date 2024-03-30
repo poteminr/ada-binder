@@ -11,8 +11,8 @@ class BinderConfig(PretrainedConfig):
         hidden_dropout_prob=0.1,
         max_span_width=30,
         use_span_width_embedding=False,
-        use_type_embedding=False,
-        type_embedding_mask=None,
+        dataset_entity_types=None,
+        adaptive_entity_types=None,
         num_entities=None,
         linear_size=128,
         init_temperature=0.07,
@@ -29,9 +29,10 @@ class BinderConfig(PretrainedConfig):
         self.hidden_dropout_prob=hidden_dropout_prob
         self.max_span_width = max_span_width
         self.use_span_width_embedding = use_span_width_embedding
-        self.use_type_embedding = use_type_embedding
-        self.type_embedding_mask =  np.zeros(num_entities) if type_embedding_mask is None else type_embedding_mask
-        self.num_entities = num_entities,
+        self.num_entities = num_entities if num_entities is not None else len(dataset_entity_types)
+        self.dataset_entity_types = dataset_entity_types
+        self.adaptive_entity_types = adaptive_entity_types
+        self.type_embedding_mask =  self.get_type_embedding_mask()
         self.linear_size = linear_size
         self.init_temperature = init_temperature
         self.start_loss_weight = start_loss_weight
@@ -39,3 +40,14 @@ class BinderConfig(PretrainedConfig):
         self.span_loss_weight = span_loss_weight
         self.threshold_loss_weight = threshold_loss_weight
         self.ner_loss_weight = ner_loss_weight
+    
+    def get_type_embedding_mask(self):
+        if self.adaptive_entity_types is None:
+            return np.zeros(self.num_entities)
+        else:
+            type_embedding_mask = np.zeros(self.num_entities)
+            adaptive_indices = np.where(np.in1d(self.dataset_entity_types, self.adaptive_entity_types))[0]
+            print(adaptive_indices)
+            type_embedding_mask[adaptive_indices] = 1
+            return type_embedding_mask
+            
