@@ -141,7 +141,7 @@ class Binder(PreTrainedModel):
             add_pooling_layer=False
         )
 
-        if config.use_type_embedding:
+        if self.use_type_embedding:
             self.type_embeddings = torch.nn.Embedding(config.num_entities[0], hf_config.hidden_size)
 
 
