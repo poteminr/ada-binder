@@ -316,7 +316,6 @@ def main():
         hidden_dropout_prob=model_args.hidden_dropout_prob,
         max_span_width=data_args.max_seq_length + 1,
         use_span_width_embedding=model_args.use_span_width_embedding,
-        num_entities=len(data_args.dataset_entity_types),
         dataset_entity_types=data_args.dataset_entity_types,
         adaptive_entity_types=model_args.adaptive_entity_types,
         linear_size=model_args.linear_size,
