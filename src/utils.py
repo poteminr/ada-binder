@@ -52,6 +52,7 @@ def postprocess_nested_predictions(
     predictions: Tuple[np.ndarray, np.ndarray, np.ndarray],
     id_to_type: List[str],
     max_span_length: int = 30,
+    max_span_length_by_entity: Optional[dict[str, int]] = None,
     output_dir: Optional[str] = None,
     prefix: Optional[str] = None,
     log_level: Optional[int] = logging.WARNING,
@@ -140,6 +141,14 @@ def postprocess_nested_predictions(
                 # Don't consider spans with a length that is > max_span_length.
                 if end_index - start_index + 1 > max_span_length:
                     continue
+                
+                if (
+                    max_span_length_by_entity is not None and
+                    id_to_type[type_id] in max_span_length_by_entity.keys() and
+                    end_index - start_index + 1 > max_span_length_by_entity[id_to_type[type_id]]
+                ):
+                    continue
+                
                 # A prediction contains (example_id, entity_type, start_index, end_index)
                 start_char, end_char = offset_mapping[start_index][0], offset_mapping[end_index][1]
                 pred = Annotation(
@@ -239,7 +248,7 @@ def postprocess_nested_predictions(
         logger.info(f"Saving predictions to {prediction_file}.")
         with open(prediction_file, "w") as writer:
             for pred in predictions_to_save:
-                writer.write(json.dumps(pred) + "\n")
+                writer.write(json.dumps(pred, ensure_ascii=False) + "\n")
 
         metric_file = os.path.join(
             output_dir, "metrics.json" if prefix is None else f"{prefix}_metrics.json"
@@ -367,6 +376,7 @@ def postprocess_flat_predictions(
     predictions: Tuple[np.ndarray, np.ndarray, np.ndarray],
     id_to_type: List[str],
     max_span_length: int = 30,
+    max_span_length_by_entity: Optional[dict[str, int]] = None,
     output_dir: Optional[str] = None,
     prefix: Optional[str] = None,
     log_level: Optional[int] = logging.WARNING,
@@ -454,6 +464,13 @@ def postprocess_flat_predictions(
                     continue
                 # Don't consider spans with a length that is > max_span_length.
                 if end_index - start_index + 1 > max_span_length:
+                    continue
+                
+                if (
+                    max_span_length_by_entity is not None and
+                    id_to_type[type_id] in max_span_length_by_entity.keys() and
+                    end_index - start_index + 1 > max_span_length_by_entity[id_to_type[type_id]]
+                ):
                     continue
                 # A prediction contains (example_id, entity_type, start_index, end_index)
                 start_char, end_char = offset_mapping[start_index][0], offset_mapping[end_index][1]
@@ -560,7 +577,7 @@ def postprocess_flat_predictions(
         logger.info(f"Saving predictions to {prediction_file}.")
         with open(prediction_file, "w") as writer:
             for pred in predictions_to_save:
-                writer.write(json.dumps(pred) + "\n")
+                writer.write(json.dumps(pred, ensure_ascii=False) + "\n")
 
         metric_file = os.path.join(
             output_dir, "metrics.json" if prefix is None else f"{prefix}_metrics.json"

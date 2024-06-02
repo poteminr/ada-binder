@@ -1,19 +1,18 @@
 from transformers import PretrainedConfig
-import numpy as np
+
 
 class BinderConfig(PretrainedConfig):
     def __init__(
         self,
         pretrained_model_name_or_path=None,
+        base_encoder_path=None,
         cache_dir=None,
         revision="main",
         use_auth_token=False,
         hidden_dropout_prob=0.1,
         max_span_width=30,
         use_span_width_embedding=False,
-        dataset_entity_types=None,
-        adaptive_entity_types=None,
-        num_entities=None,
+        use_adaptive_entity_embedding=True,
         linear_size=128,
         init_temperature=0.07,
         start_loss_weight=0.2,
@@ -22,17 +21,15 @@ class BinderConfig(PretrainedConfig):
         threshold_loss_weight=0.5,
         ner_loss_weight=0.5,
     ):
-        self.pretrained_model_name_or_path=pretrained_model_name_or_path
-        self.cache_dir=cache_dir
-        self.revision=revision
-        self.use_auth_token=use_auth_token
-        self.hidden_dropout_prob=hidden_dropout_prob
+        self.pretrained_model_name_or_path = pretrained_model_name_or_path
+        self.base_encoder_path = base_encoder_path
+        self.cache_dir = cache_dir
+        self.revision = revision
+        self.use_auth_token = use_auth_token
+        self.hidden_dropout_prob = hidden_dropout_prob
         self.max_span_width = max_span_width
         self.use_span_width_embedding = use_span_width_embedding
-        self.num_entities = num_entities if num_entities is not None else len(dataset_entity_types)
-        self.dataset_entity_types = dataset_entity_types
-        self.adaptive_entity_types = adaptive_entity_types
-        self.type_embedding_mask =  self.get_type_embedding_mask()
+        self.use_adaptive_entity_embedding = use_adaptive_entity_embedding
         self.linear_size = linear_size
         self.init_temperature = init_temperature
         self.start_loss_weight = start_loss_weight
@@ -40,14 +37,3 @@ class BinderConfig(PretrainedConfig):
         self.span_loss_weight = span_loss_weight
         self.threshold_loss_weight = threshold_loss_weight
         self.ner_loss_weight = ner_loss_weight
-    
-    def get_type_embedding_mask(self):
-        if self.adaptive_entity_types is None:
-            return np.zeros(self.num_entities)
-        else:
-            type_embedding_mask = np.zeros(self.num_entities)
-            adaptive_indices = np.where(np.in1d(self.dataset_entity_types, self.adaptive_entity_types))[0]
-            print(adaptive_indices)
-            type_embedding_mask[adaptive_indices] = 1
-            return type_embedding_mask
-            

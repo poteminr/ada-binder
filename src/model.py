@@ -1,3 +1,4 @@
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Union, Dict
 import torch
@@ -79,7 +80,6 @@ def contrastive_loss(
 
 @dataclass
 class BinderModelOutput(ModelOutput):
-
     loss: Optional[torch.FloatTensor] = None
     start_scores: torch.FloatTensor = None
     end_scores: torch.FloatTensor = None
@@ -89,21 +89,26 @@ class BinderModelOutput(ModelOutput):
 
 
 class Binder(PreTrainedModel):
-    
-    def __init__(self, config):
+    def __init__(
+        self,
+        config,
+        dataset_entity_types,
+        adaptive_entity_types,
+    ):
         super().__init__(config)
-
         hf_config = AutoConfig.from_pretrained(
-            pretrained_model_name_or_path=config.pretrained_model_name_or_path,
+            pretrained_model_name_or_path=config.base_encoder_path,
             cache_dir=config.cache_dir,
             revision=config.revision,
             use_auth_token=config.use_auth_token,
             hidden_dropout_prob=config.hidden_dropout_prob,
         )
         self.hf_config = hf_config
-        self.num_entities = config.num_entities
-        self.type_embedding_mask = config.type_embedding_mask
-        self.use_type_embedding = self.type_embedding_mask.sum() > 0
+        self.dataset_entity_types = dataset_entity_types
+        self.adaptive_entity_types = adaptive_entity_types
+        self.num_entities = len(self.dataset_entity_types)
+        self.use_adaptive_entity_embedding = config.use_adaptive_entity_embedding
+        self.type_embedding_mask = self.get_type_embedding_mask()
         self.config.pruned_heads = hf_config.pruned_heads
         self.dropout = torch.nn.Dropout(hf_config.hidden_dropout_prob)
         self.type_start_linear = torch.nn.Linear(hf_config.hidden_size, config.linear_size)
@@ -117,6 +122,7 @@ class Binder(PreTrainedModel):
         else:
             self.span_linear = torch.nn.Linear(hf_config.hidden_size * 2, config.linear_size)
             self.width_embeddings = None
+            
         self.start_logit_scale = torch.nn.Parameter(torch.ones([]) * np.log(1 / config.init_temperature))
         self.end_logit_scale = torch.nn.Parameter(torch.ones([]) * np.log(1 / config.init_temperature))
         self.span_logit_scale = torch.nn.Parameter(torch.ones([]) * np.log(1 / config.init_temperature))
@@ -130,21 +136,25 @@ class Binder(PreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-        self.text_encoder = AutoModel.from_pretrained(
-            config.pretrained_model_name_or_path,
-            config=hf_config,
-            add_pooling_layer=False
-        )
-        self.type_encoder = AutoModel.from_pretrained(
-            config.pretrained_model_name_or_path,
-            config=hf_config,
-            add_pooling_layer=False
-        )
+        if config.pretrained_model_name_or_path is not None:
+            self.text_encoder = AutoModel.from_config(config=self.hf_config, add_pooling_layer=False)
+            self.type_encoder = AutoModel.from_config(config=self.hf_config, add_pooling_layer=False)
+        else:
+            self.text_encoder = AutoModel.from_pretrained(config.base_encoder_path, add_pooling_layer=False)
+            self.type_encoder = AutoModel.from_pretrained(config.base_encoder_path, add_pooling_layer=False)
 
-        if self.use_type_embedding:
-            self.type_embeddings = torch.nn.Embedding(config.num_entities[0], hf_config.hidden_size)
-
-
+        if self.use_adaptive_entity_embedding:
+            self.type_embeddings = torch.nn.Embedding(self.num_entities, hf_config.hidden_size)
+            
+    def get_type_embedding_mask(self):
+        if self.use_adaptive_entity_embedding:
+            type_embedding_mask = np.zeros(self.num_entities)
+            adaptive_indices = np.where(np.in1d(self.dataset_entity_types, self.adaptive_entity_types))[0]
+            type_embedding_mask[adaptive_indices] = 1
+            return type_embedding_mask
+        else:
+            return np.zeros(self.num_entities)
+        
     def _init_weights(self, module):
         """Initialize the weights"""
         if isinstance(module, nn.Linear):
@@ -165,6 +175,21 @@ class Binder(PreTrainedModel):
         self.text_encoder.gradient_checkpointing_enable()
         self.type_encoder.gradient_checkpointing_enable()
 
+    @classmethod
+    def from_pretrained(cls, config, dataset_entity_types, adaptive_entity_types):
+        if config.pretrained_model_name_or_path is None:
+            return cls(config, dataset_entity_types, adaptive_entity_types)
+        
+        if config.pretrained_model_name_or_path.endswith('pytorch_model.bin'):
+            model_name_or_path = config.pretrained_model_name_or_path
+        else:
+            model_name_or_path = Path(config.pretrained_model_name_or_path) / "pytorch_model.bin"
+                    
+        state_dict = torch.load(model_name_or_path)
+        model = cls(config, dataset_entity_types, adaptive_entity_types)
+        model.load_state_dict(state_dict)
+        return model
+    
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -195,14 +220,19 @@ class Binder(PreTrainedModel):
         )
         # num_types x hidden_size
         type_output = type_outputs[0][:, 0]
-        if self.use_type_embedding:
-            type_range_vector = torch.cuda.LongTensor(self.num_entities[0], device=type_output.device).fill_(1).cumsum(0) - 1
+        if self.use_adaptive_entity_embedding:
+            type_range_vector = torch.cuda.LongTensor(self.num_entities, device=type_output.device).fill_(1).cumsum(0) - 1
             type_embeddings = self.type_embeddings(type_range_vector)
+        
+            type_output[np.where(self.type_embedding_mask)] = 0
+            type_embeddings[np.where(np.ones_like(self.type_embedding_mask) - self.type_embedding_mask)] = 0
             
-            type_output = type_output[np.where(np.ones_like(self.type_embedding_mask) - self.type_embedding_mask)]
-            type_embeddings = type_embeddings[np.where(self.type_embedding_mask)]
+            # type_output[np.where(self.type_embedding_mask)] = type_embeddings[np.where(self.type_embedding_mask)]
+
+            # type_output = type_output[np.where(np.ones_like(self.type_embedding_mask) - self.type_embedding_mask)]
+            # type_embeddings = type_embeddings[np.where(self.type_embedding_mask)]
     
-            type_output = torch.cat([type_output, type_embeddings], dim=0)
+            type_output = type_output + type_embeddings #torch.cat([type_output, type_embeddings], dim=0)
 
         batch_size, seq_length, _ = sequence_output.size()
         num_types, _ = type_output.size()

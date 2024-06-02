@@ -37,8 +37,11 @@ class ModelArguments:
     Arguments for Binder.
     """
 
-    model_name_or_path: str = field(
-        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
+    pretrained_model_name_or_path: str = field(
+        default=None, metadata={"help": "Path to pretrained BINDER model"}
+    )
+    base_encoder_path: str = field(
+        metadata={"help": "Path to pretrained encoder model identifier from huggingface.co/models"}
     )
     config_name: Optional[str] = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
@@ -66,10 +69,6 @@ class ModelArguments:
     )
     use_span_width_embedding: bool = field(
         default=False, metadata={"help": "Use span width embeddings."}
-    )
-    adaptive_entity_types: Optional[List[str]] = field(
-        default_factory=list,
-        metadata={"help": "The entity types of this dataset, which are only a part of types in the entity type file."},
     )
     linear_size: int = field(
         default=128, metadata={"help": "Size of the last linear layer."}
@@ -168,6 +167,12 @@ class DataTrainingArguments:
             "help": "The maximum length of an entity span."
         },
     )
+    max_span_length_by_entity: Optional[dict[str, int]] = field(
+        default=None,
+        metadata={
+            "help": "The maximum length of an entity span for specific entity."
+        },
+    )
     entity_type_file: str = field(
         default=None,
         metadata={"help": "The entity type file contains all entity type names, descriptions, etc."},
@@ -175,6 +180,10 @@ class DataTrainingArguments:
     dataset_entity_types: Optional[List[str]] = field(
         default_factory=list,
         metadata={"help": "The entity types of this dataset, which are only a part of types in the entity type file."},
+    )
+    adaptive_entity_types: Optional[List[str]] = field(
+        default_factory=list,
+        metadata={"help": "The entity types of this dataset with full-adaptive embeddings."},
     )
     entity_type_key_field: Optional[str] = field(
         default="name",
@@ -300,24 +309,25 @@ def main():
     # The .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
     tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        model_args.tokenizer_name if model_args.tokenizer_name else model_args.base_encoder_path,
         cache_dir=model_args.cache_dir,
         use_fast=True,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
         add_prefix_space=True,
     )
+    
     logger.info("===== Init the model =====")
     config = BinderConfig(
-        pretrained_model_name_or_path=model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+        pretrained_model_name_or_path=model_args.pretrained_model_name_or_path,
+        base_encoder_path=model_args.base_encoder_path,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
         hidden_dropout_prob=model_args.hidden_dropout_prob,
         max_span_width=data_args.max_seq_length + 1,
         use_span_width_embedding=model_args.use_span_width_embedding,
-        dataset_entity_types=data_args.dataset_entity_types,
-        adaptive_entity_types=model_args.adaptive_entity_types,
+        use_adaptive_entity_embedding=len(data_args.adaptive_entity_types) > 0,
         linear_size=model_args.linear_size,
         init_temperature=model_args.init_temperature,
         start_loss_weight=model_args.start_loss_weight,
@@ -326,7 +336,7 @@ def main():
         threshold_loss_weight=model_args.threshold_loss_weight,
         ner_loss_weight=model_args.ner_loss_weight,
     )
-    model = Binder(config)
+    # model = Binder(config, data_args.dataset_entity_types, data_args.adaptive_entity_types)
 
     # Tokenizer check: this script requires a fast tokenizer.
     if not isinstance(tokenizer, PreTrainedTokenizerFast):
@@ -359,6 +369,9 @@ def main():
 
     entity_type_id_to_str = [et[data_args.entity_type_key_field] for et in entity_type_knowledge]
     entity_type_str_to_id = {t: i for i, t in enumerate(entity_type_id_to_str)}
+
+
+    model = Binder.from_pretrained(config, entity_type_id_to_str, data_args.adaptive_entity_types)
 
     def prepare_type_features(examples):
         tokenized_examples = tokenizer(
@@ -655,6 +668,7 @@ def main():
             predictions=predictions,
             id_to_type=entity_type_id_to_str,
             max_span_length=data_args.max_span_length,
+            max_span_length_by_entity=data_args.max_span_length_by_entity,
             output_dir=training_args.output_dir if training_args.should_save else None,
             log_level=log_level,
             prefix=stage,
@@ -714,7 +728,6 @@ def main():
     if training_args.do_predict:
         logger.info("*** Predict ***")
         results = trainer.predict(predict_dataset, predict_examples)
-        results
         metrics = results.metrics
 
         max_predict_samples = (
@@ -725,7 +738,7 @@ def main():
         trainer.log_metrics("predict", metrics)
         trainer.save_metrics("predict", metrics)
 
-    kwargs = {"finetuned_from": model_args.model_name_or_path, "model_name": "Binder"}
+    kwargs = {"finetuned_from": model_args.base_encoder_path, "model_name": "Binder"}
     if data_args.dataset_name is not None:
         kwargs["dataset_tags"] = data_args.dataset_name
         if data_args.dataset_config_name is not None:

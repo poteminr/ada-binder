@@ -162,12 +162,12 @@ class BinderTrainer(Trainer):
             prediction_loss_only=None,
             ignore_keys=ignore_keys,
         )
-        pd.to_pickle(predict_examples, 'predict_examples.pkl')
-        pd.to_pickle(predict_dataset, 'predict_dataset.pkl')
-        pd.to_pickle(output.predictions, 'output_predictions.pkl')
-        # pd.to_pickle(predictions, 'predictions.pkl')
+        # pd.to_pickle(predict_examples, 'predict_examples.pkl')
+        # pd.to_pickle(predict_dataset, 'predict_dataset.pkl')
+        # pd.to_pickle(output.predictions, 'output_predictions.pkl')
         predictions = self.post_process_function(predict_examples, predict_dataset, output.predictions, "predict")
         metrics = predictions["metrics"]
+        # pd.to_pickle(predictions, 'predictions.pkl')
 
         # Prefix all keys with metric_key_prefix + '_'
         for key in list(metrics.keys()):
